@@ -346,6 +346,7 @@ NM		= $(CROSS_COMPILE)nm
 STRIP		= $(CROSS_COMPILE)strip
 OBJCOPY		= $(CROSS_COMPILE)objcopy
 OBJDUMP		= $(CROSS_COMPILE)objdump
+LDLLD		= ld.lld
 AWK		= awk
 GENKSYMS	= scripts/genksyms/genksyms
 INSTALLKERNEL  := installkernel
@@ -636,6 +637,9 @@ endif
 KBUILD_CPPFLAGS += -Qunused-arguments
 endif
 
+ifdef CONFIG_LD_LLD
+LD		:= $(LDLLD)
+endif
 # The arch Makefile can set ARCH_{CPP,A,C}FLAGS to override the default
 # values of the respective KBUILD_* variables
 ARCH_CPPFLAGS :=
