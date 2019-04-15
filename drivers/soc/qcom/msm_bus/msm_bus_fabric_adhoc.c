@@ -575,7 +575,7 @@ exit_disable_node_qos_clk:
 }
 
 static int msm_bus_enable_node_qos_clk(struct msm_bus_node_device_type *node,
-					bool *no_defer)
+				       bool *no_defer)
 {
 	struct msm_bus_node_device_type *bus_node = NULL;
 	int i;
