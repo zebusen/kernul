@@ -46,6 +46,9 @@
 #include <linux/input/mt.h>
 #endif
 #include "../lct_tp_gesture.h"
+#ifdef CONFIG_TOUCHSCREEN_COMMON
+#include <linux/input/tp_common.h>
+#endif
 
 #ifdef CONFIG_TOUCHSCREEN_COMMON
 #include <linux/input/tp_common.h>
