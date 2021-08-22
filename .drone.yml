@@ -1,0 +1,18 @@
+kind: pipeline
+name: RAD KERNEL BUILD
+
+clone:
+  disable: true
+
+steps:
+- name: gnu-gcc oldcam
+  image: archlinux:latest
+  environment:
+      TELEGRAM_TOKEN:
+        from_secret: TG_BOT_API
+  commands:
+    - curl https://raw.githubusercontent.com/theradcolor/lazyscripts/master/etc/workaround > workaround && bash workaround
+    - pacman -Sy base-devel bc curl zip wget git --noconfirm
+    - git clone --depth=1 --quiet https://github.com/zebusen/kernul.git -b test source && cd source
+    - git clone --depth=1 --quiet https://github.com/zebusen/buildscript.git
+    - script -c "bash -x buildscript/sdm660.sh --aosp-clang --oldcam"
