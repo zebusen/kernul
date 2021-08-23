@@ -23,9 +23,9 @@
 #include <linux/irq.h>
 #include <linux/gpio.h>
 #include <linux/proc_fs.h>
-#include <linux/uaccess.h>
+#include <asm/uaccess.h>
 #include <linux/input/mt.h>
-#include <linux/slab.h>
+#include <linux/wakelock.h>
 #include <linux/of_gpio.h>
 #include <linux/of_irq.h>
 
@@ -300,33 +300,6 @@ static struct tp_common_ops double_tap_ops = {
 #endif
 #endif
 
-#ifdef CONFIG_TOUCHSCREEN_COMMON
-static ssize_t double_tap_show(struct kobject *kobj,
-			       struct kobj_attribute *attr, char *buf)
-{
-	return sprintf(buf, "%d\n", enable_gesture_mode);
-}
-
-static ssize_t double_tap_store(struct kobject *kobj,
-				struct kobj_attribute *attr, const char *buf,
-				size_t count)
-{
-	int rc, val;
-
-	rc = kstrtoint(buf, 10, &val);
-	if (rc)
-		return -EINVAL;
-
-	enable_gesture_mode = !!val;
-	return count;
-}
-
-static struct tp_common_ops double_tap_ops = {
-	.show = double_tap_show,
-	.store = double_tap_store
-};
-#endif
-
 static uint8_t bTouchIsAwake = 0;
 
 /*******************************************************
@@ -339,33 +312,30 @@ return:
 int32_t CTP_I2C_READ(struct i2c_client *client, uint16_t address, uint8_t *buf, uint16_t len)
 {
 	struct i2c_msg msgs[2];
-	int32_t ret = -EIO;
-	int32_t retries;
-
-	char *dma = kmalloc(len, GFP_KERNEL | GFP_DMA);
-	memcpy(dma, buf, len);
+	int32_t ret = -1;
+	int32_t retries = 0;
 
 	msgs[0].flags = !I2C_M_RD;
 	msgs[0].addr  = address;
 	msgs[0].len   = 1;
-	msgs[0].buf   = dma;
+	msgs[0].buf   = &buf[0];
 
 	msgs[1].flags = I2C_M_RD;
 	msgs[1].addr  = address;
 	msgs[1].len   = len - 1;
-	msgs[1].buf   = dma + 1;
+	msgs[1].buf   = &buf[1];
 
-	for (retries = 0; retries < 5; retries++) {
+	while (retries < 5) {
 		ret = i2c_transfer(client->adapter, msgs, 2);
-		if (likely(ret == 2))
-			goto out;
+		if (ret == 2)	break;
+		retries++;
 	}
 
-	NVT_ERR("i2c read error\n");
+	if (unlikely(retries == 5)) {
+		NVT_ERR("error, ret=%d\n", ret);
+		ret = -EIO;
+	}
 
-out:
-	memcpy(buf, dma, len);
-	kfree(dma);
 	return ret;
 }
 
@@ -379,26 +349,25 @@ return:
 int32_t CTP_I2C_WRITE(struct i2c_client *client, uint16_t address, uint8_t *buf, uint16_t len)
 {
 	struct i2c_msg msg;
-	int32_t ret = -EIO;
-	int32_t retries;
-
-	char *dma = kmalloc(len, GFP_KERNEL | GFP_DMA);
-	memcpy(dma, buf, len);
+	int32_t ret = -1;
+	int32_t retries = 0;
 
 	msg.flags = !I2C_M_RD;
 	msg.addr  = address;
 	msg.len   = len;
-	msg.buf   = dma;
+	msg.buf   = buf;
 
-	for (retries = 0; retries < 5; retries++) {
+	while (retries < 5) {
 		ret = i2c_transfer(client->adapter, &msg, 1);
-		if (likely(ret == 1))
-			goto out;
+		if (ret == 1)	break;
+		retries++;
 	}
 
-	NVT_ERR("i2c write error\n");
-out:
-	kfree(dma);
+	if (unlikely(retries == 5)) {
+		NVT_ERR("error, ret=%d\n", ret);
+		ret = -EIO;
+	}
+
 	return ret;
 }
 
@@ -841,6 +810,8 @@ static int32_t nvt_flash_proc_init(void)
 /* function page definition */
 #define FUNCPAGE_GESTURE         1
 
+static struct wake_lock gestrue_wakelock;
+
 /*******************************************************
 Description:
 	Novatek touchscreen wake up gesture key report function.
@@ -1047,26 +1018,26 @@ return:
 *******************************************************/
 static void nvt_ts_work_func(struct work_struct *work)
 {
-	int32_t ret;
-	uint8_t point_data[POINT_DATA_LEN + 1] = { 0, };
-	uint32_t position;
-	uint32_t input_x;
-	uint32_t input_y;
-	uint32_t input_w;
-	uint32_t input_p;
-	uint8_t input_id;
+	int32_t ret = -1;
+	uint8_t point_data[POINT_DATA_LEN + 1] = {0};
+	uint32_t position = 0;
+	uint32_t input_x = 0;
+	uint32_t input_y = 0;
+	uint32_t input_w = 0;
+	uint32_t input_p = 0;
+	uint8_t input_id = 0;
 #if MT_PROTOCOL_B
 	uint8_t press_id[TOUCH_MAX_FINGER_NUM] = {0};
 #endif /* MT_PROTOCOL_B */
-	int32_t i;
-	int32_t finger_cnt;
+	int32_t i = 0;
+	int32_t finger_cnt = 0;
 
 	mutex_lock(&ts->lock);
 
 	ret = CTP_I2C_READ(ts->client, I2C_FW_Address, point_data, POINT_DATA_LEN + 1);
-	if (unlikely(ret < 0)) {
+	if (ret < 0) {
 		NVT_ERR("CTP_I2C_READ failed.(%d)\n", ret);
-		goto out;
+		goto XFER_ERROR;
 	}
 /*
 	//--- dump I2C buf ---
@@ -1079,15 +1050,17 @@ static void nvt_ts_work_func(struct work_struct *work)
 #if NVT_TOUCH_ESD_PROTECT
 	if (nvt_fw_recovery(point_data)) {
 		nvt_esd_check_enable(true);
-		goto out;
+		goto XFER_ERROR;
 	}
 #endif /* #if NVT_TOUCH_ESD_PROTECT */
 
 #if WAKEUP_GESTURE
-	if (unlikely(bTouchIsAwake == 0)) {
+	if (bTouchIsAwake == 0) {
 		input_id = (uint8_t)(point_data[1] >> 3);
 		nvt_ts_wakeup_gesture_report(input_id, point_data);
-		goto out;
+		enable_irq(ts->client->irq);
+		mutex_unlock(&ts->lock);
+		return;
 	}
 #endif
 
@@ -1178,7 +1151,9 @@ static void nvt_ts_work_func(struct work_struct *work)
 
 	input_sync(ts->input_dev);
 
-out:
+XFER_ERROR:
+	enable_irq(ts->client->irq);
+
 	mutex_unlock(&ts->lock);
 }
 
@@ -1191,10 +1166,11 @@ return:
 *******************************************************/
 static irqreturn_t nvt_ts_irq_handler(int32_t irq, void *dev_id)
 {
+	disable_irq_nosync(ts->client->irq);
 
 #if WAKEUP_GESTURE
-	if (unlikely(bTouchIsAwake == 0)) {
-		__pm_wakeup_event(ts->gestrue_wakelock, msecs_to_jiffies(5000));
+	if (bTouchIsAwake == 0) {
+		wake_lock_timeout(&gestrue_wakelock, msecs_to_jiffies(5000));
 	}
 #endif
 
@@ -1379,7 +1355,7 @@ static int32_t nvt_ts_probe(struct i2c_client *client, const struct i2c_device_i
 	mutex_unlock(&ts->lock);
 
 
-	nvt_wq = alloc_workqueue("nvt_wq", WQ_HIGHPRI, 0);
+	nvt_wq = create_workqueue("nvt_wq");
 	if (!nvt_wq) {
 		NVT_ERR("nvt_wq create workqueue failed\n");
 		ret = -ENOMEM;
@@ -1439,7 +1415,7 @@ static int32_t nvt_ts_probe(struct i2c_client *client, const struct i2c_device_i
 	for (retry = 0; retry < (sizeof(gesture_key_array) / sizeof(gesture_key_array[0])); retry++) {
 		input_set_capability(ts->input_dev, EV_KEY, gesture_key_array[retry]);
 	}
-	ts->gestrue_wakelock = wakeup_source_register(NULL, "gestrue_wakelock");
+	wake_lock_init(&gestrue_wakelock, WAKE_LOCK_SUSPEND, "poll-wake-lock");
 #ifdef CONFIG_TOUCHSCREEN_COMMON
 	ret = tp_common_set_double_tap_ops(&double_tap_ops);
 	if (ret < 0) {
