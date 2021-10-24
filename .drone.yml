@@ -6,16 +6,16 @@ clone:
 
 steps:
 - name: gnu-gcc oldcam
-  image: archlinux:latest
+  image: archlinux:base-devel
   environment:
       TELEGRAM_TOKEN:
         from_secret: TG_BOT_API
       PERSONAL_TOKEN:
         from_secret: PAT
   commands:
-    - curl https://raw.githubusercontent.com/theradcolor/lazyscripts/master/etc/workaround > workaround && bash workaround
-    - pacman -Syy
-    - pacman -Sy base-devel bc curl zip wget git lld --noconfirm
+    - # curl https://raw.githubusercontent.com/theradcolor/lazyscripts/master/etc/workaround > workaround && bash workaround
+    - curl -LO "https://repo.archlinuxcn.org/x86_64/glibc-linux4-2.33-4-x86_64.pkg.tar.zst" && bsdtar -C / -xvf "glibc-linux4-2.33-4-x86_64.pkg.tar.zst"
+    - pacman -Sy && pacman -S git bc inetutils python2 zip jdk-openjdk lld --noconfirm
     - git clone --depth=1 --quiet https://zebusen:$PERSONAL_TOKEN@github.com/zebusen/kernul.git -b bpf-slmk-eas source && cd source
     - git clone --depth=1 --quiet https://github.com/zebusen/buildscript.git
     - script -c "bash -x buildscript/sdm660.sh --gcc-gnu --gnu-10 --oldcam --slmk"
