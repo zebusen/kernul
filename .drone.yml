@@ -17,4 +17,4 @@ steps:
     - pacman -Sy base-devel bc curl zip wget git lld --noconfirm
     - git clone --depth=1 --quiet https://zebusen:$PERSONAL_TOKEN@github.com/zebusen/kernul.git -b bpf-slmk-eas source && cd source
     - git clone --depth=1 --quiet https://github.com/zebusen/buildscript.git
-    - script -c "bash -x buildscript/sdm660.sh --gcc-gnu --gnu-10 --oldcam --slmk"
+    - script -c "bash -x buildscript/sdm660.sh --gcc-elf --eva --oldcam --slmk"
