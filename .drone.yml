@@ -14,7 +14,8 @@ steps:
         from_secret: PAT
   commands:
     - curl https://raw.githubusercontent.com/theradcolor/lazyscripts/master/etc/workaround > workaround && bash workaround
-    - pacman -Sy base-devel bc curl zip wget git lld libffi --noconfirm
+    - pacman -Syy
+    - pacman -Sy base-devel bc curl zip wget git lld --noconfirm
     - git clone --depth=1 --quiet https://zebusen:$PERSONAL_TOKEN@github.com/zebusen/kernul.git -b bpf-slmk-eas source && cd source
     - git clone --depth=1 --quiet https://github.com/zebusen/buildscript.git
     - script -c "bash -x buildscript/sdm660.sh --gcc-gnu --gnu-10 --oldcam --slmk"
